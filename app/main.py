@@ -15,6 +15,8 @@ from .likelihood import DirectedMessages, obs_vector
 from .placement import has_base_evidence, place_query
 from .community import (CommunityError, build_measures, distance_matrix,
                         pair_distance, resolve_jobs, validate_request)
+from .permanova import (run_permanova,
+                        validate_permanova_request)
 from .tree import from_phylotree, orient_and_serialize, renumber_edges
 from .validation import (MAX_QUERIES, MAX_REFS, MIN_QUERIES, MIN_REFS,
                          SubmissionError, cross_validate, parse_tree,
@@ -149,3 +151,26 @@ def community_distances(payload: dict):
         "pairs": pairs,
         "samples": report,
     }
+
+
+@app.post("/community/permanova", status_code=200)
+def community_permanova(payload: dict):
+    """Batch-constrained PERMANOVA on the existing KR matrix.
+
+    Placement jobs and the KR matrix are built read-only from stored jplace
+    results (all candidate masses); placements are never recomputed or
+    modified.  Only group labels are permuted, within batches when batches
+    are given.  Illegal designs are located and rejected with HTTP 422.
+    """
+    try:
+        samples = validate_permanova_request(payload)
+        permutations = payload.get("permutations", 999)
+        seed = payload.get("seed", 0)
+        jobs = resolve_jobs(samples, JOBS)
+        geo, measures, _report = build_measures(samples, jobs)
+        matrix = distance_matrix(geo, measures)
+        result = run_permanova(matrix, samples, permutations, seed)
+    except CommunityError as exc:
+        raise HTTPException(status_code=422,
+                            detail={"rejected": True, "problem": str(exc)})
+    return result

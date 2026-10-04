@@ -224,8 +224,10 @@ def parse_annotated_newick(text: str) -> dict:
     """Parse jplace Newick (quoted labels, ':length{edge_num}') into geometry.
 
     Returns {'lengths': {edge_num: length},
-             'subtree': {edge_num: (child_edges, leaf_name|None)},
-             'edge_order': [edge_num, ...]}.
+             'subtree': {edge_num: all descendant edge_nums},
+             'children': {edge_num: immediate child edge_nums},
+             'leaf': {edge_num: leaf_name|None},
+             'edge_order': [edge_num, ...]} (post-order, leaves first).
     Edges are oriented parent -> child; 'subtree' lists edges on the child
     (distal) side, including the edge itself.
     """
@@ -255,13 +257,18 @@ def parse_annotated_newick(text: str) -> dict:
 
     lengths: dict[int, float] = {}
     child_of: dict[int, list[int]] = {}
+    immediate: dict[int, list[int]] = {}
     leaf_of: dict[int, str | None] = {}
     edge_order: list[int] = []
 
     def walk(nd: _NT) -> list[int]:
         below: list[int] = []
+        direct: list[int] = []
         for child in nd.children:
-            below.extend(walk(child))
+            child_below = walk(child)
+            below.extend(child_below)
+            if child.edge_num is not None:
+                direct.append(child.edge_num)
         if nd.edge_num is not None:
             if nd.length is None:
                 raise ValueError("edge " + str(nd.edge_num) + " has no length")
@@ -269,6 +276,7 @@ def parse_annotated_newick(text: str) -> dict:
                 raise ValueError("duplicate edge number " + str(nd.edge_num))
             lengths[nd.edge_num] = float(nd.length)
             child_of[nd.edge_num] = below
+            immediate[nd.edge_num] = direct
             leaf_of[nd.edge_num] = nd.name if not nd.children else None
             edge_order.append(nd.edge_num)
             return below + [nd.edge_num]
@@ -276,4 +284,5 @@ def parse_annotated_newick(text: str) -> dict:
 
     walk(root)
     return {"lengths": lengths, "subtree": child_of,
+            "children": immediate,
             "leaf": leaf_of, "edge_order": edge_order}

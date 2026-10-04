@@ -113,9 +113,9 @@ def build_measures(samples: list[dict], jobs: list[dict]):
 
         for qid in sorted(counts):
             count = counts[qid]
-            if count == 0:
-                continue
             if qid in places:
+                if count == 0:
+                    continue
                 candidates = places[qid]
                 weight_sum = sum(c["like_weight_ratio"] for c in candidates)
                 if not candidates or abs(weight_sum - 1.0) > 1e-7:
@@ -140,11 +140,15 @@ def build_measures(samples: list[dict], jobs: list[dict]):
                     pos = min(max(length - c["distal_length"], 0.0), length)
                     raw_events[eid].append((pos, count * c["like_weight_ratio"]))
             elif qid in unplaceable:
+                if count == 0:
+                    continue
                 excluded.append({"id": qid, "count": count,
                                  "reason": unplaceable[qid]})
             else:
                 raise CommunityError("sample '" + sample["sample_id"] + "': "
-                                     "unknown query id '" + qid + "'")
+                                     "unknown query id '" + qid + "' (count "
+                                     + str(count) + "; even zero counts must "
+                                     "reference a known id)")
 
         if valid_total <= 0:
             raise CommunityError("sample '" + sample["sample_id"] + "': no "
@@ -186,7 +190,7 @@ def pair_distance(geo: dict, m1: dict, m2: dict) -> dict:
     absolute difference of the two samples' distal masses; events make that
     difference piecewise constant.
     """
-    subtree = geo["subtree"]
+    children = geo["children"]
     lengths = geo["lengths"]
 
     def edge_total(measure, eid):
@@ -195,10 +199,11 @@ def pair_distance(geo: dict, m1: dict, m2: dict) -> dict:
     d1: dict[int, float] = {}
     d2: dict[int, float] = {}
     for eid in geo["edge_order"]:
-        child_total_1 = sum(d1.get(c, 0.0) for c in subtree[eid]
-                            if c != eid)
-        child_total_2 = sum(d2.get(c, 0.0) for c in subtree[eid]
-                            if c != eid)
+        # edge_order is post-order: only the *immediate* child edges are
+        # added here; summing the whole distal edge list would count mass in
+        # deep subtrees once per ancestor level.
+        child_total_1 = sum(d1.get(c, 0.0) for c in children[eid])
+        child_total_2 = sum(d2.get(c, 0.0) for c in children[eid])
         d1[eid] = child_total_1 + edge_total(m1, eid)
         d2[eid] = child_total_2 + edge_total(m2, eid)
 
